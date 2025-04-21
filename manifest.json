@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "Strapi Cookie Importer",
+  "version": "1.0",
+  "description": "Automatically fetch and import cookies from Strapi API",
+  "permissions": ["cookies", "clipboardRead", "tabs"],
+  "host_permissions": ["https://admin.upeasybd.com/*", "<all_urls>"],
+  "background": {
+    "service_worker": "background.js"
+  }
+}
