@@ -99,10 +99,7 @@ async function clearAllCookies(targetUrl, cookies, statusDiv) {
 
   if (uniqueDomains.length === 0) {
     console.warn("No domains identified for cookie clearing");
-    showStatus(
-      "Error: No domains available to clear cookies. Get access first.",
-      "error"
-    );
+    showStatus("Error: No domains available to clear cookies.", "error");
     return 0;
   }
 
@@ -195,12 +192,24 @@ async function importCookies(cookies, statusDiv, targetUrl = "") {
   // Reload tab if any cookies were imported
   if (successCount > 0) {
     const reloaded = await reloadRelevantTab(targetUrl, cookies);
-    if (!reloaded) {
-      statusMessage += `\nNo tab reloaded (active tab does not match domain).`;
+    if (reloaded) {
+      // Add delay to ensure cookies are set and tab reload is complete
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      console.log("Attempting to clear all cookies after tab reload");
+      const removedCount = await clearAllCookies(targetUrl, cookies, statusDiv);
+      statusMessage += `\nCleared ${removedCount} cookies after tab reload.`;
+      if (removedCount === 0) {
+        statusMessage += `\nWarning: No cookies were found to clear. Check console logs for details.`;
+      }
+    } else {
+      statusMessage += `\nNo tab reloaded (active tab does not match domain); cookies not cleared.`;
     }
   }
 
-  showStatus(statusMessage, errorCount > 0 ? "error" : "success");
+  showStatus(
+    statusMessage,
+    errorCount > 0 || statusMessage.includes("Warning") ? "error" : "success"
+  );
 }
 
 document.getElementById("getAccess").addEventListener("click", async () => {
@@ -245,49 +254,12 @@ document.getElementById("getAccess").addEventListener("click", async () => {
       return;
     }
 
-    // Import cookies and pass targetUrl
+    // Import cookies, reload tab, and clear cookies
     await importCookies(cookies, statusDiv, tool.targetUrl || "");
   } catch (error) {
     showStatus(`Failed to fetch cookies: ${error.message}`, "error");
   } finally {
     getAccessButton.disabled = false;
-  }
-});
-
-document.getElementById("clearCookies").addEventListener("click", async () => {
-  const statusDiv = document.getElementById("status");
-  const clearButton = document.getElementById("clearCookies");
-
-  if (!lastTargetUrl && lastCookies.length === 0) {
-    showStatus("Error: No cookies fetched yet. Get access first.", "error");
-    return;
-  }
-
-  clearButton.disabled = true;
-  showStatus("Clearing cookies...", "success");
-
-  try {
-    const removedCount = await clearAllCookies(
-      lastTargetUrl,
-      lastCookies,
-      statusDiv
-    );
-    let statusMessage = `Cleared ${removedCount} cookies.`;
-    if (removedCount === 0) {
-      statusMessage += `\nWarning: No cookies found to clear. Check console logs for details.`;
-    }
-
-    // Reload tab after clearing cookies
-    const reloaded = await reloadRelevantTab(lastTargetUrl, lastCookies);
-    if (!reloaded) {
-      statusMessage += `\nNo tab reloaded (active tab does not match domain).`;
-    }
-
-    showStatus(statusMessage, removedCount === 0 ? "error" : "success");
-  } catch (error) {
-    showStatus(`Failed to clear cookies: ${error.message}`, "error");
-  } finally {
-    clearButton.disabled = false;
   }
 });
 

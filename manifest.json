@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "Strapi Cookie Importer",
+  "name": "UpEasy - Experience Next Gen Subscription!",
   "version": "1.0",
-  "description": "Automatically fetch and import cookies from Strapi API",
-  "permissions": ["cookies", "clipboardRead", "tabs"],
+  "description": "Experience the Next Generation of Subscriptions with us",
+  "permissions": ["cookies", "clipboardRead", "tabs", "activeTab"],
   "host_permissions": ["https://admin.upeasybd.com/*", "<all_urls>"],
   "background": {
     "service_worker": "background.js"
