@@ -1,3 +1,4 @@
+// popup.js
 let lastTargetUrl = "";
 let lastCookies = [];
 
@@ -139,7 +140,11 @@ async function clearAllCookies(targetUrl, cookies, statusDiv) {
       );
     }
   }
-
+  if (removedCount > 0) {
+    setTimeout(() => {
+      window.close();
+    }, 100);
+  }
   console.log(`Total cookies removed: ${removedCount}`);
   return removedCount;
 }
