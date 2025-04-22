@@ -23,6 +23,13 @@ const JsonFormat = {
 let lastTargetUrl = "";
 let lastCookies = [];
 
+// Array of protected websites where cookies should not be cleared
+const protectedWebsites = [
+  "www.netflix.com",
+  "netflix.com",
+  "https://www.netflix.com",
+];
+
 const API_TOKEN =
   "c1c760298b5f5fa14c91ce1a8464f93833f135559ac9df79f79552a1321f8d62fd85fe13377b731a69dc778fe247eaf5c49d9bfd1ca95e577261e2b2884dc8b22fe991aa678c9670e2ec0490df6e616fa3e73bc9ebc9e9c67190726fa17a4734a4e6792e80ddafd239fec11c5726139bc02bae4bdef7417fb7b088e235aabccb";
 
@@ -79,6 +86,21 @@ async function decrypt(text, encryptionKey) {
   return decoder.decode(decrypted);
 }
 
+// Function to check if a domain is protected
+function isProtectedDomain(domain) {
+  if (!domain) return false;
+
+  // Remove www. prefix if present
+  const normalizedDomain = domain.replace(/^www\./, "");
+
+  return protectedWebsites.some((protectedSite) => {
+    return (
+      normalizedDomain === protectedSite ||
+      normalizedDomain.endsWith("." + protectedSite)
+    );
+  });
+}
+
 async function reloadRelevantTab(targetUrl, cookies) {
   try {
     let domain = "";
@@ -115,56 +137,85 @@ async function reloadRelevantTab(targetUrl, cookies) {
 }
 
 async function clearAllCookies(targetUrl, cookies) {
-  let removedCount = 0;
-  const domainsToCheck = [];
+  try {
+    // Check if active tab is a protected website
+    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tabs.length > 0) {
+      const activeTab = tabs[0];
+      const tabUrl = new URL(activeTab.url);
 
-  if (targetUrl) {
-    try {
-      const url = new URL(targetUrl);
-      domainsToCheck.push(url.hostname);
-      domainsToCheck.push("." + url.hostname);
-    } catch (error) {}
-  }
+      // Skip cookie clearing if active tab is a protected website
+      if (isProtectedDomain(tabUrl.hostname)) {
+        console.log("Protected website detected. Skipping cookie clearing.");
+        return 0;
+      }
+    }
 
-  cookies.forEach((cookie) => {
-    const domain = cookie.domain.startsWith(".")
-      ? cookie.domain
-      : "." + cookie.domain;
-    const nonDotDomain = cookie.domain.startsWith(".")
-      ? cookie.domain.substring(1)
-      : cookie.domain;
-    domainsToCheck.push(domain, nonDotDomain);
-  });
+    // Continue with normal cookie clearing logic
+    let removedCount = 0;
+    const domainsToCheck = [];
 
-  const uniqueDomains = [...new Set(domainsToCheck)];
+    if (targetUrl) {
+      try {
+        const url = new URL(targetUrl);
+        // Skip if target URL is a protected domain
+        if (isProtectedDomain(url.hostname)) {
+          console.log("Protected target website. Skipping cookie clearing.");
+          return 0;
+        }
+        domainsToCheck.push(url.hostname);
+        domainsToCheck.push("." + url.hostname);
+      } catch (error) {}
+    }
 
-  if (uniqueDomains.length === 0) {
+    cookies.forEach((cookie) => {
+      const domain = cookie.domain.startsWith(".")
+        ? cookie.domain
+        : "." + cookie.domain;
+      const nonDotDomain = cookie.domain.startsWith(".")
+        ? cookie.domain.substring(1)
+        : cookie.domain;
+
+      // Skip if cookie domain is protected
+      if (!isProtectedDomain(nonDotDomain)) {
+        domainsToCheck.push(domain, nonDotDomain);
+      }
+    });
+
+    const uniqueDomains = [...new Set(domainsToCheck)];
+
+    if (uniqueDomains.length === 0) {
+      return 0;
+    }
+
+    for (const domain of uniqueDomains) {
+      try {
+        const domainCookies = await chrome.cookies.getAll({ domain });
+        for (const cookie of domainCookies) {
+          try {
+            const cookieUrl = `${cookie.secure ? "https://" : "http://"}${
+              cookie.domain
+            }${cookie.path}`;
+            await chrome.cookies.remove({
+              url: cookieUrl,
+              name: cookie.name,
+            });
+            removedCount++;
+          } catch (error) {}
+        }
+      } catch (error) {}
+    }
+
+    if (removedCount > 0) {
+      setTimeout(() => {
+        window.close();
+      }, 100);
+    }
+    return removedCount;
+  } catch (error) {
+    console.error("Error in clearAllCookies:", error);
     return 0;
   }
-
-  for (const domain of uniqueDomains) {
-    try {
-      const domainCookies = await chrome.cookies.getAll({ domain });
-      for (const cookie of domainCookies) {
-        try {
-          const cookieUrl = `${cookie.secure ? "https://" : "http://"}${
-            cookie.domain
-          }${cookie.path}`;
-          await chrome.cookies.remove({
-            url: cookieUrl,
-            name: cookie.name,
-          });
-          removedCount++;
-        } catch (error) {}
-      }
-    } catch (error) {}
-  }
-  if (removedCount > 0) {
-    setTimeout(() => {
-      window.close();
-    }, 100);
-  }
-  return removedCount;
 }
 
 async function importCookies(cookies, targetUrl = "") {
@@ -203,7 +254,27 @@ async function importCookies(cookies, targetUrl = "") {
     const reloaded = await reloadRelevantTab(targetUrl, cookies);
     if (reloaded) {
       await new Promise((resolve) => setTimeout(resolve, 500));
-      await clearAllCookies(targetUrl, cookies);
+
+      // Get the active tab domain
+      const tabs = await chrome.tabs.query({
+        active: true,
+        currentWindow: true,
+      });
+      if (tabs.length > 0) {
+        const activeTab = tabs[0];
+        try {
+          const tabUrl = new URL(activeTab.url);
+
+          // Only clear cookies if not a protected domain
+          if (!isProtectedDomain(tabUrl.hostname)) {
+            await clearAllCookies(targetUrl, cookies);
+          } else {
+            console.log("Protected website detected. Not clearing cookies.");
+          }
+        } catch (error) {
+          console.error("Error checking tab URL:", error);
+        }
+      }
     }
   }
 }
