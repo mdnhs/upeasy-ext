@@ -3,6 +3,9 @@
   "name": "UpEasy - Experience Next Gen Subscription!",
   "version": "1.0",
   "description": "Experience the Next Generation of Subscriptions with us",
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none'"
+  },
   "permissions": ["cookies", "clipboardRead", "tabs", "activeTab", "storage"],
   "host_permissions": ["https://admin.upeasybd.com/*", "<all_urls>"],
   "action": {

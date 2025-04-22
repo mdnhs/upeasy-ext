@@ -1,10 +1,10 @@
-<!-- popup.html -->
 <!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>UpEasy</title>
+
     <style>
       :root {
         --background: #09090b;
@@ -138,36 +138,6 @@
         opacity: 0.5;
       }
 
-      .status {
-        margin-top: 0.75rem;
-        padding: 0.75rem;
-        border-radius: var(--radius);
-        font-size: 0.875rem;
-        transition: all 0.2s ease;
-      }
-
-      .success {
-        background-color: rgba(22, 163, 74, 0.1);
-        color: #16a34a;
-        border: 1px solid rgba(22, 163, 74, 0.2);
-      }
-
-      .error {
-        background-color: rgba(220, 38, 38, 0.1);
-        color: #dc2626;
-        border: 1px solid rgba(220, 38, 38, 0.2);
-      }
-
-      .info {
-        background-color: rgba(59, 130, 246, 0.1);
-        color: #3b82f6;
-        border: 1px solid rgba(59, 130, 246, 0.2);
-      }
-
-      .hidden {
-        display: none;
-      }
-
       footer {
         font-size: 0.75rem;
         color: var(--muted-foreground);
@@ -238,7 +208,6 @@
       <main>
         <p>Click the button below to get access to the website.</p>
         <button id="getAccess" class="btn-primary">Get Access</button>
-        <div id="status" class="status hidden" style="visibility: hidden;"></div>
       </main>
 
       <footer>

@@ -1,4 +1,39 @@
-// popup.js
+// JsonFormat class (non-module version)
+/**
+ * This class is responsible for parsing and formatting cookies to the JSON format.
+ */
+const JsonFormat = {
+  /**
+   * Parses a string of cookie in the JSON format to a cookie object.
+   * @param {string} cookieString Cookies in the JSON format.
+   * @return {object} List of Cookies.
+   */
+  parse(cookieString) {
+    return JSON.parse(cookieString);
+  },
+
+  /**
+   * Formats a list of cookies into a JSON formatted string.
+   * @param {Cookie[]} cookies Cookies to format.
+   * @return {string} JSON formatted cookie string.
+   */
+  format(cookies) {
+    const exportedCookies = [];
+    for (const cookieId in cookies) {
+      if (!Object.prototype.hasOwnProperty.call(cookies, cookieId)) {
+        continue;
+      }
+      const exportedCookie = cookies[cookieId].cookie;
+      exportedCookie.storeId = null;
+      if (exportedCookie.sameSite === "unspecified") {
+        exportedCookie.sameSite = null;
+      }
+      exportedCookies.push(exportedCookie);
+    }
+    return JSON.stringify(exportedCookies, null, 4);
+  },
+};
+
 let lastTargetUrl = "";
 let lastCookies = [];
 
@@ -23,9 +58,43 @@ function validateCookie(cookie) {
   return true;
 }
 
+async function decrypt(text, encryptionKey) {
+  const [ivHex, encryptedHex] = text.split(":");
+  if (!ivHex || !encryptedHex) throw new Error("Invalid encrypted format");
+
+  const decoder = new TextDecoder();
+  const keyData = new TextEncoder().encode(
+    encryptionKey.padEnd(16, "\0").slice(0, 16)
+  );
+  const iv = new Uint8Array(
+    ivHex.match(/.{1,2}/g).map((byte) => parseInt(byte, 16))
+  );
+  const encryptedData = new Uint8Array(
+    encryptedHex.match(/.{1,2}/g).map((byte) => parseInt(byte, 16))
+  );
+
+  const key = await crypto.subtle.importKey(
+    "raw",
+    keyData,
+    { name: "AES-CBC" },
+    false,
+    ["decrypt"]
+  );
+
+  const decrypted = await crypto.subtle.decrypt(
+    {
+      name: "AES-CBC",
+      iv: iv,
+    },
+    key,
+    encryptedData
+  );
+
+  return decoder.decode(decrypted);
+}
+
 async function reloadRelevantTab(targetUrl, cookies) {
   try {
-    // Extract domain from targetUrl or first cookie's domain
     let domain = "";
     if (targetUrl) {
       const url = new URL(targetUrl);
@@ -37,53 +106,40 @@ async function reloadRelevantTab(targetUrl, cookies) {
     }
 
     if (!domain) {
-      console.warn("No valid domain found for tab reload");
       return false;
     }
 
-    // Query active tabs
     const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
     if (tabs.length === 0) {
-      console.warn("No active tab found");
       return false;
     }
 
     const activeTab = tabs[0];
     const tabUrl = new URL(activeTab.url);
 
-    // Check if active tab's domain matches
     if (tabUrl.hostname === domain || tabUrl.hostname.endsWith("." + domain)) {
       await chrome.tabs.reload(activeTab.id);
-      console.log(`Reloaded tab: ${activeTab.url}`);
       return true;
     } else {
-      console.log(
-        `Active tab (${tabUrl.hostname}) does not match target domain (${domain})`
-      );
       return false;
     }
   } catch (error) {
-    console.error("Failed to reload tab:", error.message);
     return false;
   }
 }
 
-async function clearAllCookies(targetUrl, cookies, statusDiv) {
+async function clearAllCookies(targetUrl, cookies) {
   let removedCount = 0;
   const domainsToCheck = [];
 
-  // Add domains from targetUrl
   if (targetUrl) {
     try {
       const url = new URL(targetUrl);
-      domainsToCheck.push(url.hostname); // e.g., chatgpt.com
-      domainsToCheck.push("." + url.hostname); // e.g., .chatgpt.com
-    } catch (error) {
-      console.warn("Invalid targetUrl:", targetUrl, error.message);
-    }
+      domainsToCheck.push(url.hostname);
+      domainsToCheck.push("." + url.hostname);
+    } catch (error) {}
   }
 
-  // Add domains from cookies
   cookies.forEach((cookie) => {
     const domain = cookie.domain.startsWith(".")
       ? cookie.domain
@@ -94,25 +150,15 @@ async function clearAllCookies(targetUrl, cookies, statusDiv) {
     domainsToCheck.push(domain, nonDotDomain);
   });
 
-  // Remove duplicates
   const uniqueDomains = [...new Set(domainsToCheck)];
-  console.log("Domains to check for cookie clearing:", uniqueDomains);
 
   if (uniqueDomains.length === 0) {
-    console.warn("No domains identified for cookie clearing");
-    showStatus("Error: No domains available to clear cookies.", "error");
     return 0;
   }
 
   for (const domain of uniqueDomains) {
     try {
-      // Fetch all cookies for the domain
       const domainCookies = await chrome.cookies.getAll({ domain });
-      console.log(
-        `Found ${domainCookies.length} cookies for domain: ${domain}`,
-        domainCookies.map((c) => c.name)
-      );
-
       for (const cookie of domainCookies) {
         try {
           const cookieUrl = `${cookie.secure ? "https://" : "http://"}${
@@ -122,37 +168,22 @@ async function clearAllCookies(targetUrl, cookies, statusDiv) {
             url: cookieUrl,
             name: cookie.name,
           });
-          console.log(
-            `Removed cookie: ${cookie.name} for domain: ${cookie.domain}, path: ${cookie.path}`
-          );
           removedCount++;
-        } catch (error) {
-          console.error(
-            `Failed to remove cookie ${cookie.name} for domain ${cookie.domain}:`,
-            error.message
-          );
-        }
+        } catch (error) {}
       }
-    } catch (error) {
-      console.error(
-        `Failed to fetch cookies for domain ${domain}:`,
-        error.message
-      );
-    }
+    } catch (error) {}
   }
   if (removedCount > 0) {
     setTimeout(() => {
       window.close();
     }, 100);
   }
-  console.log(`Total cookies removed: ${removedCount}`);
   return removedCount;
 }
 
-async function importCookies(cookies, statusDiv, targetUrl = "") {
+async function importCookies(cookies, targetUrl = "") {
   let successCount = 0;
   let errorCount = 0;
-  const errors = [];
 
   for (const cookie of cookies) {
     try {
@@ -173,64 +204,33 @@ async function importCookies(cookies, statusDiv, targetUrl = "") {
         expirationDate: expirationDate,
         storeId: cookie.storeId || undefined,
       });
-      console.log(`Set cookie: ${cookie.name} for domain: ${cookie.domain}`);
       successCount++;
     } catch (error) {
-      console.error(
-        `Failed to set cookie ${cookie.name || "unknown"}:`,
-        error.message
-      );
       errorCount++;
-      errors.push(`Cookie "${cookie.name || "unknown"}": ${error.message}`);
     }
   }
 
-  let statusMessage = `Imported ${successCount} cookies successfully. ${errorCount} failed.`;
-  if (errorCount > 0) {
-    statusMessage += `\nErrors:\n${errors.join("\n")}`;
-  }
-
-  // Store targetUrl and cookies for later clearing
   lastTargetUrl = targetUrl;
   lastCookies = cookies;
 
-  // Reload tab if any cookies were imported
   if (successCount > 0) {
     const reloaded = await reloadRelevantTab(targetUrl, cookies);
     if (reloaded) {
-      // Add delay to ensure cookies are set and tab reload is complete
       await new Promise((resolve) => setTimeout(resolve, 500));
-      console.log("Attempting to clear all cookies after tab reload");
-      const removedCount = await clearAllCookies(targetUrl, cookies, statusDiv);
-      statusMessage += `\nCleared ${removedCount} cookies after tab reload.`;
-      if (removedCount === 0) {
-        statusMessage += `\nWarning: No cookies were found to clear. Check console logs for details.`;
-      }
-    } else {
-      statusMessage += `\nNo tab reloaded (active tab does not match domain); cookies not cleared.`;
+      await clearAllCookies(targetUrl, cookies);
     }
   }
-
-  showStatus(
-    statusMessage,
-    errorCount > 0 || statusMessage.includes("Warning") ? "error" : "success"
-  );
 }
 
 document.getElementById("getAccess").addEventListener("click", async () => {
-  const statusDiv = document.getElementById("status");
   const getAccessButton = document.getElementById("getAccess");
-
   getAccessButton.disabled = true;
-  showStatus("Fetching cookies from Strapi...", "success");
 
   try {
-    // Read documentId from clipboard
     const documentId = (await navigator.clipboard.readText()).trim();
     if (!documentId) {
       throw new Error("Clipboard is empty or contains no valid documentId");
     }
-    console.log(`Retrieved documentId from clipboard: ${documentId}`);
 
     const response = await fetch(
       `https://admin.upeasybd.com/api/tools/${encodeURIComponent(documentId)}`,
@@ -249,20 +249,35 @@ document.getElementById("getAccess").addEventListener("click", async () => {
     const tool = data.data;
 
     if (!tool) {
-      showStatus("No tool found for the specified documentId", "error");
-      return;
+      throw new Error("No tool data received");
     }
 
-    const cookies = tool.toolData || [];
+    let cookies = [];
+    if (tool.accessData) {
+      const ENCRYPTION_KEY = "Ad@5$%^28?3#7&$#";
+      try {
+        // Await the decrypt function
+        const decryptedData = await decrypt(tool.accessData, ENCRYPTION_KEY);
+        // Parse the decrypted JSON
+        cookies = JsonFormat.parse(decryptedData);
+      } catch (error) {
+        console.error("Decryption or parsing error:", error);
+        throw new Error("Invalid encrypted data or wrong key");
+      }
+    } else {
+      // Handle non-encrypted data (original behavior)
+      cookies = tool.accessData || [];
+    }
+
     if (cookies.length === 0) {
-      showStatus("No cookies available in the tool data", "error");
-      return;
+      throw new Error("No valid cookies found");
     }
 
-    // Import cookies, reload tab, and clear cookies
-    await importCookies(cookies, statusDiv, tool.targetUrl || "");
+    await importCookies(cookies, tool.targetUrl || "");
   } catch (error) {
-    showStatus(`Failed to fetch cookies: ${error.message}`, "error");
+    console.error("Error:", error.message);
+    // Optionally notify user of the error
+    // sendNotification(error.message);
   } finally {
     getAccessButton.disabled = false;
   }
@@ -282,14 +297,5 @@ function getSameSite(sameSite) {
   sameSite = sameSite.toLowerCase();
   const validValues = ["no_restriction", "lax", "strict"];
   if (validValues.includes(sameSite)) return sameSite;
-  console.warn(
-    `Invalid sameSite value: ${sameSite}. Defaulting to 'unspecified'.`
-  );
   return "unspecified";
-}
-
-function showStatus(message, type) {
-  const statusDiv = document.getElementById("status");
-  statusDiv.textContent = message;
-  statusDiv.className = type;
 }
