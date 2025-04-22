@@ -1,22 +1,8 @@
-// JsonFormat class (non-module version)
-/**
- * This class is responsible for parsing and formatting cookies to the JSON format.
- */
 const JsonFormat = {
-  /**
-   * Parses a string of cookie in the JSON format to a cookie object.
-   * @param {string} cookieString Cookies in the JSON format.
-   * @return {object} List of Cookies.
-   */
   parse(cookieString) {
     return JSON.parse(cookieString);
   },
 
-  /**
-   * Formats a list of cookies into a JSON formatted string.
-   * @param {Cookie[]} cookies Cookies to format.
-   * @return {string} JSON formatted cookie string.
-   */
   format(cookies) {
     const exportedCookies = [];
     for (const cookieId in cookies) {
@@ -256,16 +242,13 @@ document.getElementById("getAccess").addEventListener("click", async () => {
     if (tool.accessData) {
       const ENCRYPTION_KEY = "Ad@5$%^28?3#7&$#";
       try {
-        // Await the decrypt function
         const decryptedData = await decrypt(tool.accessData, ENCRYPTION_KEY);
-        // Parse the decrypted JSON
         cookies = JsonFormat.parse(decryptedData);
       } catch (error) {
         console.error("Decryption or parsing error:", error);
         throw new Error("Invalid encrypted data or wrong key");
       }
     } else {
-      // Handle non-encrypted data (original behavior)
       cookies = tool.accessData || [];
     }
 
@@ -276,8 +259,6 @@ document.getElementById("getAccess").addEventListener("click", async () => {
     await importCookies(cookies, tool.targetUrl || "");
   } catch (error) {
     console.error("Error:", error.message);
-    // Optionally notify user of the error
-    // sendNotification(error.message);
   } finally {
     getAccessButton.disabled = false;
   }
