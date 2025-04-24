@@ -23,12 +23,7 @@ const JsonFormat = {
 let lastTargetUrl = "";
 let lastCookies = [];
 
-// Array of protected websites where cookies should not be cleared
-const protectedWebsites = [
-  "www.netflix.com",
-  "netflix.com",
-  "https://www.netflix.com",
-];
+const protectedWebsites = ["https://www.netflix.com"];
 
 const API_TOKEN =
   "c1c760298b5f5fa14c91ce1a8464f93833f135559ac9df79f79552a1321f8d62fd85fe13377b731a69dc778fe247eaf5c49d9bfd1ca95e577261e2b2884dc8b22fe991aa678c9670e2ec0490df6e616fa3e73bc9ebc9e9c67190726fa17a4734a4e6792e80ddafd239fec11c5726139bc02bae4bdef7417fb7b088e235aabccb";
@@ -86,11 +81,9 @@ async function decrypt(text, encryptionKey) {
   return decoder.decode(decrypted);
 }
 
-// Function to check if a domain is protected
 function isProtectedDomain(domain) {
   if (!domain) return false;
 
-  // Remove www. prefix if present
   const normalizedDomain = domain.replace(/^www\./, "");
 
   return protectedWebsites.some((protectedSite) => {
@@ -138,27 +131,23 @@ async function reloadRelevantTab(targetUrl, cookies) {
 
 async function clearAllCookies(targetUrl, cookies) {
   try {
-    // Check if active tab is a protected website
     const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
     if (tabs.length > 0) {
       const activeTab = tabs[0];
       const tabUrl = new URL(activeTab.url);
 
-      // Skip cookie clearing if active tab is a protected website
       if (isProtectedDomain(tabUrl.hostname)) {
         console.log("Protected website detected. Skipping cookie clearing.");
         return 0;
       }
     }
 
-    // Continue with normal cookie clearing logic
     let removedCount = 0;
     const domainsToCheck = [];
 
     if (targetUrl) {
       try {
         const url = new URL(targetUrl);
-        // Skip if target URL is a protected domain
         if (isProtectedDomain(url.hostname)) {
           console.log("Protected target website. Skipping cookie clearing.");
           return 0;
@@ -176,7 +165,6 @@ async function clearAllCookies(targetUrl, cookies) {
         ? cookie.domain.substring(1)
         : cookie.domain;
 
-      // Skip if cookie domain is protected
       if (!isProtectedDomain(nonDotDomain)) {
         domainsToCheck.push(domain, nonDotDomain);
       }
@@ -255,7 +243,6 @@ async function importCookies(cookies, targetUrl = "") {
     if (reloaded) {
       await new Promise((resolve) => setTimeout(resolve, 500));
 
-      // Get the active tab domain
       const tabs = await chrome.tabs.query({
         active: true,
         currentWindow: true,
@@ -265,7 +252,6 @@ async function importCookies(cookies, targetUrl = "") {
         try {
           const tabUrl = new URL(activeTab.url);
 
-          // Only clear cookies if not a protected domain
           if (!isProtectedDomain(tabUrl.hostname)) {
             await clearAllCookies(targetUrl, cookies);
           } else {
@@ -277,6 +263,39 @@ async function importCookies(cookies, targetUrl = "") {
       }
     }
   }
+}
+
+function loginToNetflix(email, password) {
+  const emailXPath = '//*[@id=":r0:"]';
+  const passwordXPath = '//*[@id=":r3:"]';
+
+  function getElementByXPath(xpath) {
+    const result = document.evaluate(
+      xpath,
+      document,
+      null,
+      XPathResult.FIRST_ORDERED_NODE_TYPE,
+      null
+    );
+    return result.singleNodeValue;
+  }
+
+  const emailField = getElementByXPath(emailXPath);
+  const passwordField = getElementByXPath(passwordXPath);
+  const signInButton = document.querySelector('button[type="submit"]');
+
+  if (!emailField || !passwordField || !signInButton) {
+    console.error("Required fields or button not found.");
+    return;
+  }
+
+  emailField.value = email;
+  emailField.dispatchEvent(new Event("input", { bubbles: true }));
+
+  passwordField.value = password;
+  passwordField.dispatchEvent(new Event("input", { bubbles: true }));
+
+  signInButton.click();
 }
 
 document.getElementById("getAccess").addEventListener("click", async () => {
@@ -307,6 +326,35 @@ document.getElementById("getAccess").addEventListener("click", async () => {
 
     if (!tool) {
       throw new Error("No tool data received");
+    }
+
+    if (tool.isEmailLogin) {
+      const tabs = await chrome.tabs.query({
+        active: true,
+        currentWindow: true,
+      });
+      if (tabs.length === 0) {
+        throw new Error("No active tab found");
+      }
+
+      const activeTab = tabs[0];
+      if (activeTab.url && activeTab.url === tool.targetUrl) {
+        await chrome.scripting
+          .executeScript({
+            target: { tabId: activeTab.id },
+            func: loginToNetflix,
+            args: [tool.email, tool.password],
+          })
+          .catch((err) => {
+            console.error("Error executing login script:", err);
+            throw new Error("Failed to execute login script");
+          });
+        return;
+      } else {
+        console.log(
+          "Active tab does not match target URL, proceeding with cookie import."
+        );
+      }
     }
 
     let cookies = [];
@@ -351,3 +399,7 @@ function getSameSite(sameSite) {
   if (validValues.includes(sameSite)) return sameSite;
   return "unspecified";
 }
+
+document.getElementById("closeBtn").addEventListener("click", function () {
+  window.close();
+});
