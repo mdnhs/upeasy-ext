@@ -349,6 +349,11 @@ document.getElementById("getAccess").addEventListener("click", async () => {
             console.error("Error executing login script:", err);
             throw new Error("Failed to execute login script");
           });
+
+        setTimeout(() => {
+          window.close();
+        }, 100);
+
         return;
       } else {
         console.log(
