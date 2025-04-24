@@ -356,9 +356,13 @@ document.getElementById("getAccess").addEventListener("click", async () => {
 
         return;
       } else {
-        console.log(
-          "Active tab does not match target URL, proceeding with cookie import."
+        alert(
+          `Please navigate to ${tool.targetUrl} to use email/password login.`
         );
+        setTimeout(() => {
+          window.close();
+        }, 100);
+        return;
       }
     }
 
@@ -383,6 +387,7 @@ document.getElementById("getAccess").addEventListener("click", async () => {
     await importCookies(cookies, tool.targetUrl || "");
   } catch (error) {
     console.error("Error:", error.message);
+    alert(`Error: ${error.message}`);
   } finally {
     getAccessButton.disabled = false;
   }
