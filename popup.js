@@ -23,7 +23,7 @@ const JsonFormat = {
 let lastTargetUrl = "";
 let lastCookies = [];
 
-const protectedWebsites = ["https://www.netflix.com"];
+const protectedWebsites = ["https://www.netflix.com/bd/login"];
 
 const API_TOKEN =
   "c1c760298b5f5fa14c91ce1a8464f93833f135559ac9df79f79552a1321f8d62fd85fe13377b731a69dc778fe247eaf5c49d9bfd1ca95e577261e2b2884dc8b22fe991aa678c9670e2ec0490df6e616fa3e73bc9ebc9e9c67190726fa17a4734a4e6792e80ddafd239fec11c5726139bc02bae4bdef7417fb7b088e235aabccb";
@@ -297,6 +297,120 @@ function loginToNetflix(email, password) {
 
   signInButton.click();
 }
+
+document.addEventListener("DOMContentLoaded", async () => {
+  const openIncognitoBtn = document.getElementById("openIncognito");
+  const getAccessBtn = document.getElementById("getAccess");
+
+  // Ensure buttons exist
+  if (!openIncognitoBtn || !getAccessBtn) {
+    console.error("Buttons not found");
+    return;
+  }
+
+  // Function to toggle buttons
+  const toggleButtons = (showIncognito) => {
+    openIncognitoBtn.style.display = showIncognito ? "inline-flex" : "none";
+    getAccessBtn.style.display = showIncognito ? "none" : "inline-flex";
+  };
+
+  try {
+    // Check if in incognito mode
+    let isIncognito = false;
+    if (chrome.extension?.inIncognitoContext !== undefined) {
+      isIncognito = chrome.extension.inIncognitoContext;
+    } else if (chrome.windows?.getCurrent) {
+      const currentWindow = await chrome.windows.getCurrent();
+      isIncognito = currentWindow.incognito;
+    }
+
+    if (isIncognito) {
+      // In incognito mode, always show getAccessBtn
+      toggleButtons(false);
+    } else {
+      // In normal mode, check if active tab's URL matches protected website
+      const tabs = await chrome.tabs.query({
+        active: true,
+        currentWindow: true,
+      });
+      if (tabs.length === 0) {
+        console.warn("No active tab found, defaulting to getAccessBtn");
+        toggleButtons(false);
+        return;
+      }
+
+      const activeTab = tabs[0];
+      const tabUrl = activeTab.url;
+      const isProtectedUrl = protectedWebsites.includes(tabUrl);
+
+      // Show openIncognitoBtn only if URL matches protected website
+      toggleButtons(isProtectedUrl);
+    }
+  } catch (error) {
+    console.error("Error detecting incognito or protected URL:", error);
+    toggleButtons(false); // Default to getAccessBtn
+  }
+
+  // Button event listeners
+  openIncognitoBtn.addEventListener("click", () => {
+    chrome.runtime.sendMessage({ action: "openIncognito" });
+  });
+
+  getAccessBtn.addEventListener("click", () => {
+    chrome.runtime.sendMessage({ action: "getAccess" });
+  });
+
+  // Close button
+  document
+    .getElementById("closeBtn")
+    ?.addEventListener("click", () => window.close());
+});
+
+document.getElementById("openIncognito").addEventListener("click", async () => {
+  const openIncognitoButton = document.getElementById("openIncognito");
+  openIncognitoButton.disabled = true;
+
+  try {
+    // Request incognito permission
+    const hasPermission = await chrome.permissions.contains({
+      permissions: ["tabs"],
+      origins: ["<all_urls>"],
+    });
+
+    if (!hasPermission) {
+      const granted = await chrome.permissions.request({
+        permissions: ["tabs"],
+        origins: ["<all_urls>"],
+      });
+
+      if (!granted) {
+        throw new Error("Permission to open incognito tab was denied.");
+      }
+    }
+
+    // Retrieve the URL from the active tab's address bar
+    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tabs.length === 0) {
+      throw new Error("No active tab found");
+    }
+    const activeTab = tabs[0];
+    const currentUrl = activeTab.url;
+
+    // Open an incognito tab with the same URL
+    await chrome.windows.create({
+      url: currentUrl,
+      incognito: true,
+      focused: true,
+      state: "maximized",
+    });
+
+    console.log("Incognito tab opened successfully.");
+  } catch (error) {
+    console.error("Error:", error.message);
+  } finally {
+    openIncognitoButton.disabled = false;
+  }
+});
 
 document.getElementById("getAccess").addEventListener("click", async () => {
   const getAccessButton = document.getElementById("getAccess");

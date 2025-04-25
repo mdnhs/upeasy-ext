@@ -5,3 +5,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     chrome.action.openPopup();
   }
 });
+
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === "checkIncognito") {
+    sendResponse({ isIncognito: chrome.extension.inIncognitoContext });
+  }
+});
