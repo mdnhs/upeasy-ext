@@ -194,15 +194,55 @@ async function clearAllCookies(targetUrl, cookies) {
       } catch (error) {}
     }
 
-    if (removedCount > 0) {
-      setTimeout(() => {
-        window.close();
-      }, 100);
-    }
+    console.log(`Cleared ${removedCount} cookies`);
     return removedCount;
   } catch (error) {
     console.error("Error in clearAllCookies:", error);
     return 0;
+  }
+}
+
+// Function to schedule cookie clearing
+function scheduleCookieClearing(targetUrl, cookies, minutes = 5) {
+  if (!targetUrl) {
+    console.log("No target URL provided for cookie timer");
+    return;
+  }
+
+  try {
+    // Parse URL to ensure it's valid
+    const url = new URL(targetUrl);
+
+    const timerData = {
+      targetUrl: targetUrl,
+      cookies: cookies,
+      expiryTime: Date.now() + minutes * 60 * 1000, // Current time + minutes in milliseconds
+    };
+
+    // Store timer info in chrome.storage
+    chrome.storage.local.set({ cookieTimer: timerData }, () => {
+      console.log(
+        `Cookie clearing scheduled for ${targetUrl} in ${minutes} minutes`
+      );
+
+      // Send message to background script to start monitoring
+      chrome.runtime.sendMessage(
+        {
+          action: "startCookieTimer",
+          data: timerData,
+        },
+        (response) => {
+          // Handle any runtime errors with messaging
+          if (chrome.runtime.lastError) {
+            console.error("Error sending message:", chrome.runtime.lastError);
+          } else if (response) {
+            console.log("Background script response:", response);
+          }
+        }
+      );
+    });
+  } catch (error) {
+    console.error("Error scheduling cookie clearing:", error);
   }
 }
 
@@ -239,28 +279,12 @@ async function importCookies(cookies, targetUrl = "") {
   lastCookies = cookies;
 
   if (successCount > 0) {
+    // Schedule cookie clearing after 5 minutes
+    scheduleCookieClearing(targetUrl, cookies, 5);
+
     const reloaded = await reloadRelevantTab(targetUrl, cookies);
     if (reloaded) {
       await new Promise((resolve) => setTimeout(resolve, 500));
-
-      const tabs = await chrome.tabs.query({
-        active: true,
-        currentWindow: true,
-      });
-      if (tabs.length > 0) {
-        const activeTab = tabs[0];
-        try {
-          const tabUrl = new URL(activeTab.url);
-
-          if (!isProtectedDomain(tabUrl.hostname)) {
-            await clearAllCookies(targetUrl, cookies);
-          } else {
-            console.log("Protected website detected. Not clearing cookies.");
-          }
-        } catch (error) {
-          console.error("Error checking tab URL:", error);
-        }
-      }
     }
   }
 }
@@ -350,6 +374,9 @@ document.getElementById("getAccess").addEventListener("click", async () => {
             throw new Error("Failed to execute login script");
           });
 
+        // Schedule cookie clearing for the login session too
+        scheduleCookieClearing(tool.targetUrl, [], 5);
+
         setTimeout(() => {
           window.close();
         }, 100);
@@ -385,6 +412,11 @@ document.getElementById("getAccess").addEventListener("click", async () => {
     }
 
     await importCookies(cookies, tool.targetUrl || "");
+
+    // Close popup window after successful import
+    setTimeout(() => {
+      window.close();
+    }, 100);
   } catch (error) {
     console.error("Error:", error.message);
     alert(`Error: ${error.message}`);

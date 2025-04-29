@@ -11,7 +11,9 @@
     "clipboardRead",
     "activeTab",
     "storage",
-    "scripting"
+    "scripting",
+    "alarms",
+    "notifications"
   ],
   "host_permissions": [
     "https://www.netflix.com/*",
