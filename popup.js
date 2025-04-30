@@ -319,55 +319,55 @@ function loginToNetflix(email, password) {
 }
 
 // Function to handle removeAccess button click
-async function handleRemoveAccess() {
-  const removeButton = document.getElementById("removeAccess");
-  const statusDiv = document.getElementById("status");
+// async function handleRemoveAccess() {
+//   const removeButton = document.getElementById("removeAccess");
+//   const statusDiv = document.getElementById("status");
 
-  removeButton.disabled = true;
-  statusDiv.textContent = "Clearing cookies...";
+//   removeButton.disabled = true;
+//   statusDiv.textContent = "Clearing cookies...";
 
-  const targetDomains = ["chatgpt.com", "netflix.com", "hix.ai"];
+//   const targetDomains = ["chatgpt.com", "netflix.com", "hix.ai"];
 
-  let cookiesClearedCount = 0;
+//   let cookiesClearedCount = 0;
 
-  for (const domain of targetDomains) {
-    try {
-      const cookies = await chrome.cookies.getAll({ domain });
+//   for (const domain of targetDomains) {
+//     try {
+//       const cookies = await chrome.cookies.getAll({ domain });
 
-      for (const cookie of cookies) {
-        const protocol = cookie.secure ? "https:" : "http:";
-        const urlDomain = cookie.domain.startsWith(".")
-          ? cookie.domain.substring(1)
-          : cookie.domain;
-        const cookieUrl = `${protocol}//${urlDomain}${cookie.path}`;
+//       for (const cookie of cookies) {
+//         const protocol = cookie.secure ? "https:" : "http:";
+//         const urlDomain = cookie.domain.startsWith(".")
+//           ? cookie.domain.substring(1)
+//           : cookie.domain;
+//         const cookieUrl = `${protocol}//${urlDomain}${cookie.path}`;
 
-        try {
-          await chrome.cookies.remove({ url: cookieUrl, name: cookie.name });
-          cookiesClearedCount++;
-        } catch (error) {
-          console.error(
-            `Error removing cookie ${cookie.name} for ${domain}:`,
-            error
-          );
-        }
-      }
-    } catch (error) {
-      console.error(`Error getting cookies for ${domain}:`, error);
-    }
-  }
+//         try {
+//           await chrome.cookies.remove({ url: cookieUrl, name: cookie.name });
+//           cookiesClearedCount++;
+//         } catch (error) {
+//           console.error(
+//             `Error removing cookie ${cookie.name} for ${domain}:`,
+//             error
+//           );
+//         }
+//       }
+//     } catch (error) {
+//       console.error(`Error getting cookies for ${domain}:`, error);
+//     }
+//   }
 
-  // Clear any scheduled removal
-  await chrome.alarms.clear("autoRemoveCookies");
-  await chrome.storage.local.remove([
-    "autoRemovalScheduled",
-    "scheduledRemovalTime",
-  ]);
+//   // Clear any scheduled removal
+//   await chrome.alarms.clear("autoRemoveCookies");
+//   await chrome.storage.local.remove([
+//     "autoRemovalScheduled",
+//     "scheduledRemovalTime",
+//   ]);
 
-  statusDiv.textContent = `Cleared ${cookiesClearedCount} cookies`;
-  removeButton.disabled = false;
+//   statusDiv.textContent = `Cleared ${cookiesClearedCount} cookies`;
+//   removeButton.disabled = false;
 
-  console.log(`Manually cleared ${cookiesClearedCount} cookies`);
-}
+//   console.log(`Manually cleared ${cookiesClearedCount} cookies`);
+// }
 
 // Check for pending removal when popup opens
 function checkScheduledRemoval() {
@@ -398,9 +398,9 @@ document.addEventListener("DOMContentLoaded", () => {
   document
     .getElementById("getAccess")
     .addEventListener("click", handleGetAccess);
-  document
-    .getElementById("removeAccess")
-    .addEventListener("click", handleRemoveAccess);
+  // document
+  //   .getElementById("removeAccess")
+  //   .addEventListener("click", handleRemoveAccess);
   document
     .getElementById("closeBtn")
     .addEventListener("click", () => window.close());
