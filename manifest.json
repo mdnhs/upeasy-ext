@@ -19,7 +19,8 @@
     "*://*.netflix.com/*",
     "*://*.chatgpt.com/*",
     "*://*.bypass.hix.ai/*",
-    "https://admin.upeasybd.com/*"
+    "https://admin.upeasybd.com/*",
+    "https://mdnhs.github.io/*"
   ],
   "action": {
     "default_popup": "popup.html"

@@ -1,9 +1,50 @@
-// Constants
-const CONFIG = {
-  API_URL: "https://admin.upeasybd.com/api/tools/",
-  API_TOKEN:
-    "c1c760298b5f5fa14c91ce1a8464f93833f135559ac9df79f79552a1321f8d62fd85fe13377b731a69dc778fe247eaf5c49d9bfd1ca95e577261e2b2884dc8b22fe991aa678c9670e2ec0490df6e616fa3e73bc9ebc9e9c67190726fa17a4734a4e6792e80ddafd239fec11c5726139bc02bae4bdef7417fb7b088e235aabccb",
-  ENCRYPTION_KEY: "Ad@5$%^28?3#7&$#",
+/**
+ * Config Loader
+ */
+
+const configToken =
+  "bc179006392b11379a5c7ec5bf22a3f0e73f90e341600e9388dd59f16f5bb677ae83f004faadab819d1f91e646e19fe170071b5b4c9ce8a46faeb7c69138584c3dfa7e9a691eb62ce408b3f76d7f556e3355348daceac1ce0e956cf5b1bb3be4bd7b8c20a9e193a0aa72776de16f51bb15c1dd3c99a8386c0ddc23c8a506d25b";
+
+const ConfigLoader = {
+  async loadConfig() {
+    try {
+      const response = await fetch(
+        `https://admin.upeasybd.com/api/configs/o467y39rteszjjmh4x9pgi85`,
+        {
+          headers: {
+            Authorization: `Bearer ${configToken}`,
+          },
+        }
+      );
+
+      if (!response.ok) {
+        const errorDetails = await response.text();
+        throw new Error(
+          `Failed to fetch config: ${response.status} ${response.statusText}`
+        );
+      }
+
+      const res = await response.json();
+      const configData = res.data.extConfig;
+
+      if (!configData.API_TOKEN || !configData.ENCRYPTION_KEY) {
+        throw new Error("Missing API_TOKEN or ENCRYPTION_KEY in config");
+      }
+
+      return {
+        API_URL: configData.API_URL,
+        API_TOKEN: configData.API_TOKEN,
+        ENCRYPTION_KEY: configData.ENCRYPTION_KEY,
+        REMOVAL_DELAY_MINUTES: configData.REMOVAL_DELAY_MINUTES,
+      };
+    } catch (error) {
+      throw new Error(`Failed to load configuration: ${error.message}`);
+    }
+  },
+};
+
+// Constants (initially partial, will be updated with fetched values)
+let CONFIG = {
   REMOVAL_DELAY_MINUTES: 0.3,
 };
 
@@ -12,6 +53,26 @@ let state = {
   lastTargetUrl: "",
   lastCookies: [],
 };
+
+// Load config when the script starts
+async function initializeConfig() {
+  try {
+    const { API_URL, API_TOKEN, ENCRYPTION_KEY, REMOVAL_DELAY_MINUTES } =
+      await ConfigLoader.loadConfig();
+    CONFIG = {
+      ...CONFIG,
+      API_URL,
+      API_TOKEN,
+      ENCRYPTION_KEY,
+      REMOVAL_DELAY_MINUTES,
+    };
+  } catch (error) {
+    NotificationService.show(
+      "Error",
+      "Failed to load configuration. Please try again later."
+    );
+  }
+}
 
 /**
  * Notification Module
@@ -38,7 +99,6 @@ const CookieFormatter = {
     try {
       return JSON.parse(cookieString);
     } catch (error) {
-      console.error("JSON parsing error:", error);
       throw new Error("Failed to parse cookie data: " + error.message);
     }
   },
@@ -98,8 +158,7 @@ const CookieValidator = {
  * Crypto Module
  */
 const CryptoService = {
-  async decrypt(text, encryptionKey) {
-    // Check if text is null or undefined
+  async decrypt(text, encryptionKey = CONFIG.ENCRYPTION_KEY) {
     if (!text) {
       throw new Error("Cannot decrypt null or undefined text");
     }
@@ -157,7 +216,6 @@ const CryptoService = {
 
       return decoder.decode(decrypted);
     } catch (error) {
-      console.error("Decryption error:", error);
       throw new Error(`Decryption failed: ${error.message}`);
     }
   },
@@ -172,12 +230,14 @@ const DomainUtil = {
 
     const normalizedDomain = domain.replace(/^www\./, "");
 
-    return CONFIG.PROTECTED_WEBSITES.some((protectedSite) => {
-      return (
-        normalizedDomain === protectedSite ||
-        normalizedDomain.endsWith("." + protectedSite)
-      );
-    });
+    return (
+      CONFIG.PROTECTED_WEBSITES?.some((protectedSite) => {
+        return (
+          normalizedDomain === protectedSite ||
+          normalizedDomain.endsWith("." + protectedSite)
+        );
+      }) || false
+    );
   },
 
   getCookieUrl(cookie) {
@@ -231,7 +291,6 @@ const TabManager = {
         return false;
       }
     } catch (error) {
-      console.error("Error reloading tab:", error);
       return false;
     }
   },
@@ -279,7 +338,6 @@ const CookieManager = {
         });
         successCount++;
       } catch (error) {
-        console.error("Error importing cookie:", error);
         errorCount++;
       }
     }
@@ -307,16 +365,9 @@ const CookieManager = {
           try {
             await chrome.cookies.remove({ url: cookieUrl, name: cookie.name });
             cookiesClearedCount++;
-          } catch (error) {
-            console.error(
-              `Error removing cookie ${cookie.name} for ${domain}:`,
-              error
-            );
-          }
+          } catch (error) {}
         }
-      } catch (error) {
-        console.error(`Error getting cookies for ${domain}:`, error);
-      }
+      } catch (error) {}
     }
 
     return cookiesClearedCount;
@@ -328,16 +379,13 @@ const CookieManager = {
  */
 const AutoRemovalManager = {
   async scheduleRemoval() {
-    // Clear any existing alarm
     await chrome.alarms.clear("autoRemoveCookies");
 
-    // Create new alarm
     const alarmTime = Date.now() + CONFIG.REMOVAL_DELAY_MINUTES * 60 * 1000;
     chrome.alarms.create("autoRemoveCookies", {
       delayInMinutes: CONFIG.REMOVAL_DELAY_MINUTES,
     });
 
-    // Store in storage
     await chrome.storage.local.set({
       autoRemovalScheduled: true,
       scheduledRemovalTime: alarmTime,
@@ -448,7 +496,6 @@ const ApiService = {
 
       return data.data;
     } catch (error) {
-      console.error("API fetch error:", error);
       throw new Error(`Failed to fetch tool data: ${error.message}`);
     }
   },
@@ -469,21 +516,30 @@ const UIController = {
     this.elements.statusDiv = document.getElementById("status");
     this.elements.closeBtn = document.getElementById("closeBtn");
 
-    this.elements.getAccessButton.addEventListener(
-      "click",
-      this.handleGetAccess
-    );
-    this.elements.closeBtn.addEventListener("click", () => window.close());
+    if (this.elements.getAccessButton && this.elements.closeBtn) {
+      this.elements.getAccessButton.addEventListener(
+        "click",
+        this.handleGetAccess
+      );
+      this.elements.closeBtn.addEventListener("click", () => window.close());
+    } else {
+      this.setStatus("Error: UI initialization failed");
+      return;
+    }
 
     this.updateRemovalStatus();
   },
 
   setStatus(message) {
-    this.elements.statusDiv.textContent = message;
+    if (this.elements.statusDiv) {
+      this.elements.statusDiv.textContent = message;
+    }
   },
 
   setAccessButtonState(isEnabled) {
-    this.elements.getAccessButton.disabled = !isEnabled;
+    if (this.elements.getAccessButton) {
+      this.elements.getAccessButton.disabled = !isEnabled;
+    }
   },
 
   async updateRemovalStatus() {
@@ -505,6 +561,10 @@ const UIController = {
     UIController.setStatus("Processing...");
 
     try {
+      if (!CONFIG.API_TOKEN || !CONFIG.ENCRYPTION_KEY) {
+        throw new Error("Configuration not loaded");
+      }
+
       const documentId = (await navigator.clipboard.readText()).trim();
       if (!documentId) {
         throw new Error("Clipboard is empty or contains no valid documentId");
@@ -516,7 +576,6 @@ const UIController = {
         throw new Error("No tool data received");
       }
 
-      // Check if email and password exist before trying to decrypt
       let decryptedEmail = "";
       let decryptedPassword = "";
 
@@ -526,22 +585,14 @@ const UIController = {
             tool.email,
             CONFIG.ENCRYPTION_KEY
           );
-        } else {
-          console.warn("Tool email is missing");
         }
-
         if (tool.password) {
           decryptedPassword = await CryptoService.decrypt(
             tool.password,
             CONFIG.ENCRYPTION_KEY
           );
-        } else {
-          console.warn("Tool password is missing");
         }
-      } catch (cryptoError) {
-        console.error("Decryption error:", cryptoError);
-        // Continue execution as we might still have valid cookies
-      }
+      } catch (cryptoError) {}
 
       if (tool.isEmailLogin) {
         const activeTab = await TabManager.getCurrentTab();
@@ -561,7 +612,6 @@ const UIController = {
             throw new Error("Login form not found");
           }
 
-          // Schedule removal for email login too
           await AutoRemovalManager.scheduleRemoval();
           UIController.setStatus("Login initiated - auto-removal scheduled");
           NotificationService.show(
@@ -590,14 +640,12 @@ const UIController = {
             try {
               cookies = CookieFormatter.parse(decryptedData);
             } catch (parseError) {
-              console.error("Failed to parse cookie data:", parseError);
               throw new Error("Invalid cookie data format");
             }
           } else {
             throw new Error("Decryption returned empty data");
           }
         } catch (error) {
-          console.error("Cookie decryption error:", error);
           throw new Error("Failed to decrypt cookie data: " + error.message);
         }
       } else if (Array.isArray(tool.accessData)) {
@@ -640,7 +688,8 @@ const UIController = {
 };
 
 // Initialize when DOM is loaded
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
+  await initializeConfig();
   UIController.initialize();
 });
 
@@ -658,8 +707,6 @@ async function handleRemoveAccess() {
 
   UIController.setStatus(`Cleared ${cookiesClearedCount} cookies`);
   UIController.setAccessButtonState(true);
-
-  console.log(`Manually cleared ${cookiesClearedCount} cookies`);
 }
 
 // Register for alarms
@@ -671,7 +718,5 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     );
 
     await AutoRemovalManager.cancelScheduledRemoval();
-
-    console.log(`Auto-removed ${cookiesClearedCount} cookies`);
   }
 });
