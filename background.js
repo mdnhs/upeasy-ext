@@ -1,9 +1,15 @@
-// background.js
+function showNotification(title, message) {
+  chrome.notifications.create({
+    type: "basic",
+    iconUrl: "icons/icon48.png",
+    title: title,
+    message: message,
+  });
+}
 
 // Listener for alarm triggers
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === "autoRemoveCookies") {
-    console.log("Auto-removal alarm triggered");
     await clearTargetCookies();
 
     // Clear the storage
@@ -13,12 +19,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     ]);
 
     // Send notification
-    chrome.notifications.create({
-      type: "basic",
-      iconUrl: "icons/icon48.png",
-      title: "Cookies Cleared",
-      message: "Automatically cleared cookies",
-    });
+    showNotification("Thank you!", "Automatically cleared cookies");
   }
 });
 
@@ -43,11 +44,14 @@ async function clearTargetCookies() {
         totalCleared++;
       }
     } catch (error) {
-      console.error(`Error clearing cookies for ${domain}:`, error);
+      showNotification("Please login", `Do login in ${domain}`);
     }
   }
 
-  console.log(`Automatically cleared ${totalCleared} cookies`);
+  // showNotification(
+  //   "Clearing Complete",
+  //   `Automatically cleared ${totalCleared} items`
+  // );
   // Reload tabs matching the target domains
   try {
     const tabs = await chrome.tabs.query({});
@@ -59,14 +63,13 @@ async function clearTargetCookies() {
         for (const domain of targetDomains) {
           if (tabDomain === domain || tabDomain.endsWith(`.${domain}`)) {
             await chrome.tabs.reload(tab.id);
-            console.log(`Reloaded tab: ${tab.url}`);
             break;
           }
         }
       }
     }
   } catch (error) {
-    console.error("Error reloading tabs:", error);
+    showNotification("Tab Reload Error", "Failed to reload tabs");
   }
   return totalCleared;
 }
@@ -84,7 +87,6 @@ chrome.runtime.onStartup.addListener(async () => {
       chrome.alarms.create("autoRemoveCookies", {
         when: result.scheduledRemovalTime,
       });
-      console.log("Recreated alarm on startup");
     } else {
       // If time has passed but wasn't executed
       await clearTargetCookies();

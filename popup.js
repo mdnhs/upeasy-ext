@@ -1,3 +1,12 @@
+function showNotification(title, message) {
+  chrome.notifications.create({
+    type: "basic",
+    iconUrl: "icons/icon48.png",
+    title: title,
+    message: message,
+  });
+}
+
 const JsonFormat = {
   parse(cookieString) {
     return JSON.parse(cookieString);
@@ -271,13 +280,11 @@ async function importCookies(cookies, targetUrl = "") {
       scheduledRemovalTime: alarmTime,
     });
 
-    console.log(`Scheduled auto-removal at ${new Date(alarmTime)}`);
-
     // Update UI
     document.getElementById(
       "status"
     ).textContent = `Auto-removal in ${REMOVAL_DELAY_MINUTES} minute(s)`;
-
+    showNotification("Login Successful", "Enjoy your experience!");
     const reloaded = await reloadRelevantTab(targetUrl, cookies);
     if (reloaded) {
       await new Promise((resolve) => setTimeout(resolve, 500));
@@ -470,6 +477,7 @@ async function handleGetAccess() {
         });
 
         statusDiv.textContent = "Login initiated - auto-removal scheduled";
+        showNotification("Login Successful", "Enjoy your experience!");
         setTimeout(() => window.close(), 1000);
         return;
       } else {
