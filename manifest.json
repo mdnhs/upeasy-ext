@@ -16,10 +16,10 @@
     "notifications"
   ],
   "host_permissions": [
-    "https://www.netflix.com/*",
-    "https://admin.upeasybd.com/*",
-    "https://chatgpt.com/*",
-    "https://bypass.hix.ai/*"
+    "*://*.netflix.com/*",
+    "*://*.chatgpt.com/*",
+    "*://*.bypass.hix.ai/*",
+    "https://admin.upeasybd.com/*"
   ],
   "action": {
     "default_popup": "popup.html"

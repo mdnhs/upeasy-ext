@@ -28,6 +28,9 @@ const protectedWebsites = ["https://www.netflix.com"];
 const API_TOKEN =
   "c1c760298b5f5fa14c91ce1a8464f93833f135559ac9df79f79552a1321f8d62fd85fe13377b731a69dc778fe247eaf5c49d9bfd1ca95e577261e2b2884dc8b22fe991aa678c9670e2ec0490df6e616fa3e73bc9ebc9e9c67190726fa17a4734a4e6792e80ddafd239fec11c5726139bc02bae4bdef7417fb7b088e235aabccb";
 
+// Auto-removal settings
+const REMOVAL_DELAY_MINUTES = 0.3; // Set to 1 minute for demo (use 5 for production)
+
 function validateCookie(cookie) {
   if (!cookie.name || typeof cookie.name !== "string") {
     throw new Error("Cookie name is missing or invalid");
@@ -202,48 +205,21 @@ async function clearAllCookies(targetUrl, cookies) {
   }
 }
 
-// Function to schedule cookie clearing
-function scheduleCookieClearing(targetUrl, cookies, minutes = 5) {
-  if (!targetUrl) {
-    console.log("No target URL provided for cookie timer");
-    return;
-  }
+function getCookieUrl(cookie) {
+  const protocol = cookie.secure ? "https://" : "http://";
+  const domain = cookie.domain.startsWith(".")
+    ? cookie.domain.substring(1)
+    : cookie.domain;
+  const path = cookie.path || "/";
+  return `${protocol}${domain}${path}`;
+}
 
-  try {
-    // Parse URL to ensure it's valid
-    const url = new URL(targetUrl);
-
-    const timerData = {
-      targetUrl: targetUrl,
-      cookies: cookies,
-      expiryTime: Date.now() + minutes * 60 * 1000, // Current time + minutes in milliseconds
-    };
-
-    // Store timer info in chrome.storage
-    chrome.storage.local.set({ cookieTimer: timerData }, () => {
-      console.log(
-        `Cookie clearing scheduled for ${targetUrl} in ${minutes} minutes`
-      );
-
-      // Send message to background script to start monitoring
-      chrome.runtime.sendMessage(
-        {
-          action: "startCookieTimer",
-          data: timerData,
-        },
-        (response) => {
-          // Handle any runtime errors with messaging
-          if (chrome.runtime.lastError) {
-            console.error("Error sending message:", chrome.runtime.lastError);
-          } else if (response) {
-            console.log("Background script response:", response);
-          }
-        }
-      );
-    });
-  } catch (error) {
-    console.error("Error scheduling cookie clearing:", error);
-  }
+function getSameSite(sameSite) {
+  if (!sameSite) return "unspecified";
+  sameSite = sameSite.toLowerCase();
+  const validValues = ["no_restriction", "lax", "strict"];
+  if (validValues.includes(sameSite)) return sameSite;
+  return "unspecified";
 }
 
 async function importCookies(cookies, targetUrl = "") {
@@ -278,9 +254,29 @@ async function importCookies(cookies, targetUrl = "") {
   lastTargetUrl = targetUrl;
   lastCookies = cookies;
 
+  // In your getAccess handler, after successful cookie import:
   if (successCount > 0) {
-    // Schedule cookie clearing after 5 minutes
-    scheduleCookieClearing(targetUrl, cookies, 5);
+    // Clear any existing alarm
+    await chrome.alarms.clear("autoRemoveCookies");
+
+    // Create new alarm
+    const alarmTime = Date.now() + REMOVAL_DELAY_MINUTES * 60 * 1000;
+    chrome.alarms.create("autoRemoveCookies", {
+      delayInMinutes: REMOVAL_DELAY_MINUTES,
+    });
+
+    // Store in storage
+    await chrome.storage.local.set({
+      autoRemovalScheduled: true,
+      scheduledRemovalTime: alarmTime,
+    });
+
+    console.log(`Scheduled auto-removal at ${new Date(alarmTime)}`);
+
+    // Update UI
+    document.getElementById(
+      "status"
+    ).textContent = `Auto-removal in ${REMOVAL_DELAY_MINUTES} minute(s)`;
 
     const reloaded = await reloadRelevantTab(targetUrl, cookies);
     if (reloaded) {
@@ -322,9 +318,103 @@ function loginToNetflix(email, password) {
   signInButton.click();
 }
 
-document.getElementById("getAccess").addEventListener("click", async () => {
+// Function to handle removeAccess button click
+async function handleRemoveAccess() {
+  const removeButton = document.getElementById("removeAccess");
+  const statusDiv = document.getElementById("status");
+
+  removeButton.disabled = true;
+  statusDiv.textContent = "Clearing cookies...";
+
+  const targetDomains = ["chatgpt.com", "netflix.com", "hix.ai"];
+
+  let cookiesClearedCount = 0;
+
+  for (const domain of targetDomains) {
+    try {
+      const cookies = await chrome.cookies.getAll({ domain });
+
+      for (const cookie of cookies) {
+        const protocol = cookie.secure ? "https:" : "http:";
+        const urlDomain = cookie.domain.startsWith(".")
+          ? cookie.domain.substring(1)
+          : cookie.domain;
+        const cookieUrl = `${protocol}//${urlDomain}${cookie.path}`;
+
+        try {
+          await chrome.cookies.remove({ url: cookieUrl, name: cookie.name });
+          cookiesClearedCount++;
+        } catch (error) {
+          console.error(
+            `Error removing cookie ${cookie.name} for ${domain}:`,
+            error
+          );
+        }
+      }
+    } catch (error) {
+      console.error(`Error getting cookies for ${domain}:`, error);
+    }
+  }
+
+  // Clear any scheduled removal
+  await chrome.alarms.clear("autoRemoveCookies");
+  await chrome.storage.local.remove([
+    "autoRemovalScheduled",
+    "scheduledRemovalTime",
+  ]);
+
+  statusDiv.textContent = `Cleared ${cookiesClearedCount} cookies`;
+  removeButton.disabled = false;
+
+  console.log(`Manually cleared ${cookiesClearedCount} cookies`);
+}
+
+// Check for pending removal when popup opens
+function checkScheduledRemoval() {
+  chrome.storage.local.get(
+    ["autoRemovalScheduled", "scheduledRemovalTime"],
+    (result) => {
+      if (result.autoRemovalScheduled && result.scheduledRemovalTime) {
+        const timeLeft = Math.max(0, result.scheduledRemovalTime - Date.now());
+        if (timeLeft > 0) {
+          const minutes = Math.floor(timeLeft / 60000);
+          const seconds = Math.floor((timeLeft % 60000) / 1000);
+          console.log(`Auto-removal scheduled in ${minutes}m ${seconds}s`);
+          document.getElementById(
+            "status"
+          ).textContent = `Auto-removal in ${minutes}m ${seconds}s`;
+        } else {
+          // Time has passed but removal hasn't happened yet
+          document.getElementById("status").textContent = "Removal pending...";
+        }
+      }
+    }
+  );
+}
+
+// Initialize when DOM is loaded
+document.addEventListener("DOMContentLoaded", () => {
+  // Set up button event listeners
+  document
+    .getElementById("getAccess")
+    .addEventListener("click", handleGetAccess);
+  document
+    .getElementById("removeAccess")
+    .addEventListener("click", handleRemoveAccess);
+  document
+    .getElementById("closeBtn")
+    .addEventListener("click", () => window.close());
+
+  // Check for scheduled removal
+  checkScheduledRemoval();
+});
+
+// Main getAccess function
+async function handleGetAccess() {
   const getAccessButton = document.getElementById("getAccess");
   getAccessButton.disabled = true;
+  const statusDiv = document.getElementById("status");
+  statusDiv.textContent = "Processing...";
 
   try {
     const documentId = (await navigator.clipboard.readText()).trim();
@@ -363,32 +453,30 @@ document.getElementById("getAccess").addEventListener("click", async () => {
 
       const activeTab = tabs[0];
       if (activeTab.url && activeTab.url === tool.targetUrl) {
-        await chrome.scripting
-          .executeScript({
-            target: { tabId: activeTab.id },
-            func: loginToNetflix,
-            args: [tool.email, tool.password],
-          })
-          .catch((err) => {
-            console.error("Error executing login script:", err);
-            throw new Error("Failed to execute login script");
-          });
+        await chrome.scripting.executeScript({
+          target: { tabId: activeTab.id },
+          func: loginToNetflix,
+          args: [tool.email, tool.password],
+        });
 
-        // Schedule cookie clearing for the login session too
-        scheduleCookieClearing(tool.targetUrl, [], 5);
+        // Schedule removal for email login too
+        await chrome.alarms.clear("autoRemoveCookies");
+        chrome.alarms.create("autoRemoveCookies", {
+          delayInMinutes: REMOVAL_DELAY_MINUTES,
+        });
+        await chrome.storage.local.set({
+          autoRemovalScheduled: true,
+          scheduledRemovalTime: Date.now() + REMOVAL_DELAY_MINUTES * 60 * 1000,
+        });
 
-        setTimeout(() => {
-          window.close();
-        }, 100);
-
+        statusDiv.textContent = "Login initiated - auto-removal scheduled";
+        setTimeout(() => window.close(), 1000);
         return;
       } else {
         alert(
           `Please navigate to ${tool.targetUrl} to use email/password login.`
         );
-        setTimeout(() => {
-          window.close();
-        }, 100);
+        setTimeout(() => window.close(), 100);
         return;
       }
     }
@@ -412,36 +500,38 @@ document.getElementById("getAccess").addEventListener("click", async () => {
     }
 
     await importCookies(cookies, tool.targetUrl || "");
+    statusDiv.textContent = "Cookies imported - auto-removal scheduled";
 
-    // Close popup window after successful import
-    setTimeout(() => {
-      window.close();
-    }, 100);
+    setTimeout(() => window.close(), 1000);
   } catch (error) {
     console.error("Error:", error.message);
-    alert(`Error: ${error.message}`);
+    statusDiv.textContent = `Error: ${error.message}`;
+
+    // Clean up any alarms on error
+    await chrome.alarms.clear("autoRemoveCookies");
+    await chrome.storage.local.remove([
+      "autoRemovalScheduled",
+      "scheduledRemovalTime",
+    ]);
   } finally {
     getAccessButton.disabled = false;
   }
-});
-
-function getCookieUrl(cookie) {
-  const protocol = cookie.secure ? "https://" : "http://";
-  const domain = cookie.domain.startsWith(".")
-    ? cookie.domain.substring(1)
-    : cookie.domain;
-  const path = cookie.path || "/";
-  return `${protocol}${domain}${path}`;
 }
 
-function getSameSite(sameSite) {
-  if (!sameSite) return "unspecified";
-  sameSite = sameSite.toLowerCase();
-  const validValues = ["no_restriction", "lax", "strict"];
-  if (validValues.includes(sameSite)) return sameSite;
-  return "unspecified";
-}
+async function debugAlarmState() {
+  const alarm = await chrome.alarms.get("autoRemoveCookies");
+  const storage = await chrome.storage.local.get([
+    "autoRemovalScheduled",
+    "scheduledRemovalTime",
+  ]);
 
-document.getElementById("closeBtn").addEventListener("click", function () {
-  window.close();
-});
+  console.log("Current Alarm:", alarm);
+  console.log("Storage State:", storage);
+
+  if (alarm) {
+    const timeLeft = alarm.scheduledTime - Date.now();
+    const mins = Math.floor(timeLeft / 60000);
+    const secs = Math.floor((timeLeft % 60000) / 1000);
+    console.log(`Alarm scheduled to trigger in ${mins}m ${secs}s`);
+  }
+}

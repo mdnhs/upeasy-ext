@@ -1,151 +1,97 @@
 // background.js
 
-// Event listener for opening popup
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.action === "openPopup") {
-    // Don't try to open popup from background script - this causes errors
-    console.log("Received openPopup message");
-  } else if (message.action === "startCookieTimer") {
-    startCookieTimer(message.data);
-  }
-});
-
-// Function to start the cookie timer monitoring
-function startCookieTimer(timerData) {
-  console.log("Starting cookie timer for", timerData.targetUrl);
-
-  // Check for existing alarm and clear it
-  chrome.alarms.clear("cookieClearAlarm", () => {
-    // Create a new alarm for 5 minutes
-    chrome.alarms.create("cookieClearAlarm", {
-      delayInMinutes: 1,
-    });
-
-    console.log("Alarm set to clear cookies in 5 minutes");
-  });
-}
-
-// Listen for alarm trigger
+// Listener for alarm triggers
 chrome.alarms.onAlarm.addListener(async (alarm) => {
-  if (alarm.name === "cookieClearAlarm") {
-    console.log("Cookie clear alarm triggered");
+  if (alarm.name === "autoRemoveCookies") {
+    console.log("Auto-removal alarm triggered");
+    await clearTargetCookies();
 
-    // Get the timer data from storage
-    const data = await chrome.storage.local.get("cookieTimer");
-    if (!data.cookieTimer) {
-      console.log("No cookie timer data found");
-      return;
-    }
+    // Clear the storage
+    await chrome.storage.local.remove([
+      "autoRemovalScheduled",
+      "scheduledRemovalTime",
+    ]);
 
-    const { targetUrl, cookies } = data.cookieTimer;
-
-    // Execute the cookie clearing
-    await clearCookiesForTarget(targetUrl, cookies);
-
-    // Clean up storage
-    chrome.storage.local.remove("cookieTimer");
+    // Send notification
+    chrome.notifications.create({
+      type: "basic",
+      iconUrl: "icons/icon48.png",
+      title: "Cookies Cleared",
+      message: "Automatically cleared cookies",
+    });
   }
 });
 
-// Function to clear cookies for a specific target
-async function clearCookiesForTarget(targetUrl, cookies) {
+// Cookie clearing function
+async function clearTargetCookies() {
+  const targetDomains = ["chatgpt.com", "netflix.com", "hix.ai"];
+
+  let totalCleared = 0;
+
+  for (const domain of targetDomains) {
+    try {
+      const cookies = await chrome.cookies.getAll({ domain });
+      for (const cookie of cookies) {
+        // Remove leading dot from cookie.domain, if present
+        const normalizedDomain = cookie.domain.startsWith(".")
+          ? cookie.domain.slice(1)
+          : cookie.domain;
+        const url = `${
+          cookie.secure ? "https://" : "http://"
+        }${normalizedDomain}${cookie.path}`;
+        await chrome.cookies.remove({ url, name: cookie.name });
+        totalCleared++;
+      }
+    } catch (error) {
+      console.error(`Error clearing cookies for ${domain}:`, error);
+    }
+  }
+
+  console.log(`Automatically cleared ${totalCleared} cookies`);
+  // Reload tabs matching the target domains
   try {
-    console.log(`Auto-clearing cookies for ${targetUrl}`);
-
-    if (!targetUrl) {
-      console.log("No target URL provided");
-      return;
-    }
-
-    // Extract domain information
-    const url = new URL(targetUrl);
-    const domain = url.hostname;
-
-    // Display notification to user - handle this properly
-    try {
-      chrome.notifications.create({
-        type: "basic",
-        iconUrl: "icons/icon48.png",
-        title: "UpEasy",
-        message: `Access session expired for ${domain}`,
-      });
-    } catch (notificationError) {
-      console.log("Could not create notification:", notificationError);
-    }
-
-    // Fix for the cookies domain issue
-    // Get all cookies for the domain (with and without dot prefix)
-    let allDomainCookies = [];
-    try {
-      const domainCookies = await chrome.cookies.getAll({ domain });
-      allDomainCookies = allDomainCookies.concat(domainCookies);
-    } catch (error) {
-      console.error(`Error getting cookies for ${domain}:`, error);
-    }
-
-    // Also check for cookies with dot prefix
-    try {
-      const dotDomainCookies = await chrome.cookies.getAll({
-        domain: `.${domain}`,
-      });
-      allDomainCookies = allDomainCookies.concat(dotDomainCookies);
-    } catch (error) {
-      console.error(`Error getting cookies for .${domain}:`, error);
-    }
-
-    let removedCount = 0;
-
-    // Remove each cookie with proper error handling
-    for (const cookie of allDomainCookies) {
-      try {
-        // Create the proper URL format for the cookie
-        let cookieDomain = cookie.domain;
-        if (cookieDomain.startsWith(".")) {
-          cookieDomain = cookieDomain.substring(1);
-        }
-
-        const cookieUrl = `${
-          cookie.secure ? "https" : "http"
-        }://${cookieDomain}${cookie.path}`;
-
-        // Remove the cookie
-        await chrome.cookies.remove({
-          url: cookieUrl,
-          name: cookie.name,
-        });
-        removedCount++;
-        console.log(
-          `Successfully removed cookie: ${cookie.name} from ${cookieUrl}`
-        );
-      } catch (error) {
-        console.error(`Error removing cookie ${cookie.name}:`, error.message);
-      }
-    }
-
-    console.log(`Auto-cleared ${removedCount} cookies for ${domain}`);
-
-    // Try to reload any open tabs for this domain - with proper error handling
-    try {
-      const tabs = await chrome.tabs.query({});
-      for (const tab of tabs) {
-        try {
-          if (!tab.url) continue;
-
-          const tabUrl = new URL(tab.url);
-          if (
-            tabUrl.hostname === domain ||
-            tabUrl.hostname.endsWith("." + domain)
-          ) {
-            chrome.tabs.reload(tab.id);
+    const tabs = await chrome.tabs.query({});
+    for (const tab of tabs) {
+      if (tab.url) {
+        const tabUrl = new URL(tab.url);
+        const tabDomain = tabUrl.hostname;
+        // Check if tab's domain or subdomain matches any target domain
+        for (const domain of targetDomains) {
+          if (tabDomain === domain || tabDomain.endsWith(`.${domain}`)) {
+            await chrome.tabs.reload(tab.id);
+            console.log(`Reloaded tab: ${tab.url}`);
+            break;
           }
-        } catch (tabError) {
-          console.error("Error processing tab:", tabError);
         }
       }
-    } catch (tabsError) {
-      console.error("Error querying tabs:", tabsError);
     }
   } catch (error) {
-    console.error("Error in clearCookiesForTarget:", error);
+    console.error("Error reloading tabs:", error);
   }
+  return totalCleared;
 }
+
+// Ensure alarms persist across extension restarts
+chrome.runtime.onStartup.addListener(async () => {
+  const result = await chrome.storage.local.get([
+    "autoRemovalScheduled",
+    "scheduledRemovalTime",
+  ]);
+
+  if (result.autoRemovalScheduled && result.scheduledRemovalTime) {
+    const timeLeft = result.scheduledRemovalTime - Date.now();
+    if (timeLeft > 0) {
+      chrome.alarms.create("autoRemoveCookies", {
+        when: result.scheduledRemovalTime,
+      });
+      console.log("Recreated alarm on startup");
+    } else {
+      // If time has passed but wasn't executed
+      await clearTargetCookies();
+      await chrome.storage.local.remove([
+        "autoRemovalScheduled",
+        "scheduledRemovalTime",
+      ]);
+    }
+  }
+});
